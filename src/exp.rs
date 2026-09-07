@@ -37,6 +37,7 @@ macro_rules! experimental_api {
 }
 
 #[cfg(test)]
+#[cfg_attr(coverage_nightly, coverage(off))]
 mod test {
     experimental_api! {
       /// This one has a doc comment.
