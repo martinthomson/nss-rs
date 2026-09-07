@@ -39,6 +39,8 @@ macro_rules! experimental_api {
 #[cfg(test)]
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod test {
+    use crate::err::Error;
+
     experimental_api! {
         /// This one has a doc comment.
         SSL_NonexistentFunction(x: ::std::ffi::c_uint);
@@ -48,6 +50,7 @@ mod test {
 
     #[test]
     fn nonexistent_fn() {
-        assert!(unsafe { SSL_NonexistentFunction(12) }.is_err());
+        // No need to initialize the fixture for this test.
+        assert_eq!(unsafe { SSL_NonexistentFunction(12) }, Err(Error::Internal));
     }
 }
