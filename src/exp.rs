@@ -40,10 +40,10 @@ macro_rules! experimental_api {
 #[cfg_attr(coverage_nightly, coverage(off))]
 mod test {
     experimental_api! {
-      /// This one has a doc comment.
-      SSL_NonexistentFunction(x: ::std::ffi::c_uint);
-      #[expect(dead_code)]
-      SSL_UnusedFunction();
+        /// This one has a doc comment.
+        SSL_NonexistentFunction(x: ::std::ffi::c_uint);
+        #[expect(dead_code)]
+        SSL_UnusedFunction();
     }
 
     #[test]
