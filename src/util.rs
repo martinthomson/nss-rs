@@ -257,6 +257,11 @@ impl<'a> SECItemBorrowed<'a> {
         unsafe { self.inner.as_slice() }
     }
 
+    /// Get a raw pointer to the item.
+    pub(crate) const fn as_mut_ptr(&mut self) -> *mut SECItem {
+        &raw mut self.inner
+    }
+
     /// Create an empty `SECItemBorrowed`.
     ///
     /// This can be used (1) to pass an empty item as an argument, and (2) as an

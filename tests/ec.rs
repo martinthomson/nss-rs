@@ -7,18 +7,48 @@
 use nss_rs::ec::{EcCurve, ecdh, ecdh_keygen};
 use test_fixture::fixture_init;
 
+fn ecdh_check(curve: EcCurve) {
+    fixture_init();
+
+    let a = ecdh_keygen(curve).unwrap();
+    let b = ecdh_keygen(curve).unwrap();
+    let r1 = ecdh(&a.private, &b.public).unwrap();
+    let r2 = ecdh(&b.private, &a.public).unwrap();
+    assert_eq!(r1, r2);
+}
+
+#[test]
+fn ecdh_p256() {
+    ecdh_check(EcCurve::P256);
+}
+
+#[test]
+fn ecdh_x25519() {
+    ecdh_check(EcCurve::X25519);
+}
+
+#[test]
+fn ecdh_p384() {
+    ecdh_check(EcCurve::P384);
+}
+
+#[test]
+fn ecdh_p521() {
+    ecdh_check(EcCurve::P521);
+}
+
 #[test]
 fn clone() {
     fixture_init();
 
-    let a1 = ecdh_keygen(&EcCurve::P256).expect("ecdh_keygen");
+    let a1 = ecdh_keygen(EcCurve::P256).expect("ecdh_keygen");
     let a2 = a1.clone();
 
     let a1_debug = format!("{a1:?}");
     let a2_debug = format!("{a2:?}");
     assert_eq!(a1_debug, a2_debug);
 
-    let b = ecdh_keygen(&EcCurve::P256).expect("ecdh_keygen");
+    let b = ecdh_keygen(EcCurve::P256).expect("ecdh_keygen");
 
     let a1_b = ecdh(&a1.private, &b.public).expect("a1_b/ecdh");
     let a2_b = ecdh(&a2.private, &b.public).expect("a2_b/ecdh");

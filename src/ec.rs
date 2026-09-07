@@ -6,20 +6,21 @@
 
 use std::ptr;
 
-// use std::ptr::null;
-// use std::ptr::null_mut;
+use log::{log_enabled, trace};
+
 use crate::{
     PrivateKey, PublicKey, SECItem, SECItemBorrowed, der,
     err::{Error, IntoResult as _, secstatus_to_res},
-    init,
+    init, null_safe_slice,
     p11::{
-        CK_INVALID_HANDLE, CK_MECHANISM_TYPE, CKA_SIGN, CKA_VALUE, CKD_NULL,
-        CKM_EC_EDWARDS_KEY_PAIR_GEN, CKM_EC_KEY_PAIR_GEN, CKM_EC_MONTGOMERY_KEY_PAIR_GEN,
-        CKM_ECDH1_DERIVE, CKM_ECDSA, CKM_EDDSA, CKM_SHA512_HMAC, KU_ALL,
-        PK11_ExportDERPrivateKeyInfo, PK11_GenerateKeyPair,
+        self, CK_FLAGS, CK_INVALID_HANDLE, CK_MECHANISM_TYPE, CKA_SIGN, CKA_VALUE, CKD_NULL,
+        CKF_DERIVE, CKM_EC_EDWARDS_KEY_PAIR_GEN, CKM_EC_KEY_PAIR_GEN,
+        CKM_EC_MONTGOMERY_KEY_PAIR_GEN, CKM_ECDH1_DERIVE, CKM_ECDSA, CKM_EDDSA, CKM_SHA512_HMAC,
+        KU_ALL, PK11_ATTR_INSENSITIVE, PK11_ATTR_PRIVATE, PK11_ATTR_PUBLIC, PK11_ATTR_SENSITIVE,
+        PK11_ATTR_SESSION, PK11_ExportDERPrivateKeyInfo, PK11_GenerateKeyPairWithOpFlags,
         PK11_ImportDERPrivateKeyInfoAndReturnKey, PK11_ImportPublicKey, PK11_PubDeriveWithKDF,
         PK11_ReadRawAttribute, PK11ObjectType::PK11_TypePrivKey,
-        SECKEY_DecodeDERSubjectPublicKeyInfo, Slot,
+        SECKEY_DecodeDERSubjectPublicKeyInfo, SECOidTag, Slot,
     },
     ssl::PRBool,
     util::SECItemMut,
@@ -28,7 +29,7 @@ use crate::{
 // Constants
 //
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EcCurve {
     P256,
     P384,
@@ -46,7 +47,7 @@ pub struct EcdhKeypair {
     pub private: EcdhPrivateKey,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Ecdh(EcCurve);
 
 impl Ecdh {
@@ -55,57 +56,27 @@ impl Ecdh {
         Self(curve)
     }
 
-    pub fn generate_keypair(curve: &EcCurve) -> Result<EcdhKeypair, Error> {
+    pub fn generate_keypair(curve: EcCurve) -> Result<EcdhKeypair, Error> {
         ecdh_keygen(curve)
     }
 }
-
-// Object identifiers in DER tag-length-value form
-pub const OID_EC_PUBLIC_KEY_BYTES: &[u8] = &[
-    /* RFC 5480 (id-ecPublicKey) */
-    0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01,
-];
-pub const OID_SECP256R1_BYTES: &[u8] = &[
-    /* RFC 5480 (secp256r1) */
-    0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07,
-];
-pub const OID_SECP384R1_BYTES: &[u8] = &[
-    /* RFC 5480 (secp384r1) */
-    0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x34,
-];
-pub const OID_SECP521R1_BYTES: &[u8] = &[
-    /* RFC 5480 (secp521r1) */
-    0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x35,
-];
-
-pub const OID_ED25519_BYTES: &[u8] = &[/* RFC 8410 (id-ed25519) */ 0x2b, 0x65, 0x70];
-pub const OID_RS256_BYTES: &[u8] = &[
-    /* RFC 4055 (sha256WithRSAEncryption) */
-    0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x0b,
-];
-
-pub const OID_X25519_BYTES: &[u8] = &[
-    /* https://tools.ietf.org/html/draft-josefsson-pkix-newcurves-01
-     * 1.3.6.1.4.1.11591.15.1 */
-    0x2b, 0x06, 0x01, 0x04, 0x01, 0xDA, 0x47, 0x0F, 0x01,
-];
 
 #[deprecated = "use der::object_id"]
 pub fn object_id(val: &[u8]) -> Result<Vec<u8>, Error> {
     der::object_id(val)
 }
 
-fn ec_curve_to_oid(alg: &EcCurve) -> Vec<u8> {
+fn ec_curve_to_oid(alg: EcCurve) -> SECOidTag::Type {
     match alg {
-        EcCurve::X25519 => OID_X25519_BYTES.to_vec(),
-        EcCurve::Ed25519 => OID_ED25519_BYTES.to_vec(),
-        EcCurve::P256 => OID_SECP256R1_BYTES.to_vec(),
-        EcCurve::P384 => OID_SECP384R1_BYTES.to_vec(),
-        EcCurve::P521 => OID_SECP521R1_BYTES.to_vec(),
+        EcCurve::X25519 => SECOidTag::SEC_OID_X25519,
+        EcCurve::Ed25519 => SECOidTag::SEC_OID_ED25519_SIGNATURE,
+        EcCurve::P256 => SECOidTag::SEC_OID_ANSIX962_EC_PRIME256V1,
+        EcCurve::P384 => SECOidTag::SEC_OID_SECG_EC_SECP384R1,
+        EcCurve::P521 => SECOidTag::SEC_OID_SECG_EC_SECP521R1,
     }
 }
 
-const fn ec_curve_to_ckm(alg: &EcCurve) -> CK_MECHANISM_TYPE {
+const fn ec_curve_to_ckm(alg: EcCurve) -> CK_MECHANISM_TYPE {
     match alg {
         EcCurve::P256 | EcCurve::P384 | EcCurve::P521 => CKM_EC_KEY_PAIR_GEN,
         EcCurve::Ed25519 => CKM_EC_EDWARDS_KEY_PAIR_GEN,
@@ -117,14 +88,16 @@ const fn ec_curve_to_ckm(alg: &EcCurve) -> CK_MECHANISM_TYPE {
 // Curve functions
 //
 
-pub fn ecdh_keygen(curve: &EcCurve) -> Result<EcdhKeypair, Error> {
+pub fn ecdh_keygen(curve: EcCurve) -> Result<EcdhKeypair, Error> {
     init()?;
 
     // Get the OID for the Curve
-    let curve_oid = ec_curve_to_oid(curve);
-    let oid_bytes = der::object_id(&curve_oid)?;
+    let oid_tag = ec_curve_to_oid(curve);
+    let oid = unsafe { p11::SECOID_FindOIDByTag(oid_tag) }.into_result()?;
+    let oid = unsafe { oid.as_mut_unchecked() };
+    let oid_bytes = unsafe { null_safe_slice(oid.oid.data, oid.oid.len) };
+    let oid_bytes = der::object_id(&oid_bytes)?;
     let mut oid = SECItemBorrowed::wrap(&oid_bytes)?;
-    let oid_ptr: *mut SECItem = oid.as_mut();
 
     // Get the Mechanism based on the Curve and its use
     let ckm = ec_curve_to_ckm(curve);
@@ -133,30 +106,51 @@ pub fn ecdh_keygen(curve: &EcCurve) -> Result<EcdhKeypair, Error> {
     let slot = Slot::internal()?;
 
     // Create a pointer for the public key
-    let mut pk_ptr = ptr::null_mut();
+    let mut public_ptr = ptr::null_mut();
 
-    // https://github.com/mozilla/nss-gk-api/issues/1
-    unsafe {
-        let sk = PK11_GenerateKeyPair(
-            *slot,
-            ckm,
-            oid_ptr.cast(),
-            &raw mut pk_ptr,
-            PRBool::from(false),
-            PRBool::from(false),
-            ptr::null_mut(),
-        )
-        .into_result()?;
+    let insensitive_secret_ptr = if log_enabled!(log::Level::Trace) {
+        unsafe {
+            PK11_GenerateKeyPairWithOpFlags(
+                *slot,
+                ckm,
+                oid.as_mut_ptr().cast(), // void* cast
+                &raw mut public_ptr,
+                PK11_ATTR_SESSION | PK11_ATTR_INSENSITIVE | PK11_ATTR_PUBLIC,
+                CK_FLAGS::from(CKF_DERIVE),
+                CK_FLAGS::from(CKF_DERIVE),
+                ptr::null_mut(),
+            )
+        }
+    } else {
+        ptr::null_mut()
+    };
+    assert_eq!(insensitive_secret_ptr.is_null(), public_ptr.is_null());
+    let secret_ptr = if insensitive_secret_ptr.is_null() {
+        unsafe {
+            PK11_GenerateKeyPairWithOpFlags(
+                *slot,
+                ckm,
+                oid.as_mut_ptr().cast(), // void* cast
+                &raw mut public_ptr,
+                PK11_ATTR_SESSION | PK11_ATTR_SENSITIVE | PK11_ATTR_PRIVATE,
+                CK_FLAGS::from(CKF_DERIVE),
+                CK_FLAGS::from(CKF_DERIVE),
+                ptr::null_mut(),
+            )
+        }
+    } else {
+        insensitive_secret_ptr
+    };
+    assert_eq!(secret_ptr.is_null(), public_ptr.is_null());
 
-        let pk = EcdhPublicKey::from_ptr(pk_ptr)?;
+    let sk = PrivateKey::from_ptr(secret_ptr)?;
+    let pk = EcdhPublicKey::from_ptr(public_ptr)?;
+    trace!("Generated key pair: sk={sk:?} pk={pk:?}");
 
-        let kp = EcdhKeypair {
-            public: pk,
-            private: sk,
-        };
-
-        Ok(kp)
-    }
+    Ok(EcdhKeypair {
+        public: pk,
+        private: sk,
+    })
 }
 
 pub fn export_ec_private_key_pkcs8(key: &PrivateKey) -> Result<Vec<u8>, Error> {
@@ -175,9 +169,8 @@ pub fn import_ec_public_key_from_spki(spki: &[u8]) -> Result<PublicKey, Error> {
     let slot = Slot::internal()?;
     unsafe {
         let spki = SECKEY_DecodeDERSubjectPublicKeyInfo(spki_item_ptr).into_result()?;
-        let pk: PublicKey =
-            crate::p11::SECKEY_ExtractPublicKey(spki.as_mut().ok_or(Error::InvalidInput)?)
-                .into_result()?;
+        let pk: PublicKey = p11::SECKEY_ExtractPublicKey(spki.as_mut().ok_or(Error::InvalidInput)?)
+            .into_result()?;
 
         let handle = PK11_ImportPublicKey(*slot, *pk, PRBool::from(false));
         if handle == CK_INVALID_HANDLE {
@@ -253,7 +246,7 @@ pub fn ecdh(sk: &PrivateKey, pk: &PublicKey) -> Result<Vec<u8>, Error> {
 pub fn convert_to_public(sk: &PrivateKey) -> Result<PublicKey, Error> {
     init()?;
     unsafe {
-        let pk = crate::p11::SECKEY_ConvertToPublicKey(**sk).into_result()?;
+        let pk = p11::SECKEY_ConvertToPublicKey(**sk).into_result()?;
         Ok(pk)
     }
 }
@@ -269,7 +262,7 @@ pub fn sign(
     let mut data_to_sign = SECItemBorrowed::wrap(data)?;
     let mut signature = SECItemBorrowed::wrap(&data_signature)?;
     unsafe {
-        secstatus_to_res(crate::p11::PK11_SignWithMechanism(
+        secstatus_to_res(p11::PK11_SignWithMechanism(
             private_key.as_mut().ok_or(Error::InvalidInput)?,
             mechanism,
             ptr::null_mut(),
@@ -301,7 +294,7 @@ pub fn verify(
         let mut data_to_sign = SECItemBorrowed::wrap(data)?;
         let mut signature = SECItemBorrowed::wrap(signature)?;
 
-        let rv = crate::p11::PK11_VerifyWithMechanism(
+        let rv = p11::PK11_VerifyWithMechanism(
             public_key.as_mut().ok_or(Error::InvalidInput)?,
             mechanism,
             ptr::null_mut(),
