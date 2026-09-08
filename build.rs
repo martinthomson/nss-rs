@@ -73,6 +73,10 @@ struct Bindings {
 }
 
 impl Bindings {
+    #[expect(
+        clippy::missing_asserts_for_indexing,
+        reason = "windows cannot return len != 2"
+    )]
     fn check_sorted(&self, name: &str) {
         for (field, values) in [
             ("types", &self.types),
@@ -688,6 +692,13 @@ fn process_config(config: &mut HashMap<String, Bindings>) {
 fn main() {
     println!("cargo:rerun-if-changed=Cargo.toml");
     println!("cargo:rustc-check-cfg=cfg(nss_nodb)");
+
+    let config_file = PathBuf::from(BINDINGS_DIR).join(BINDINGS_CONFIG);
+    println!("cargo:rerun-if-changed={}", config_file.to_str().unwrap());
+    let config = fs::read_to_string(config_file).expect("unable to read binding configuration");
+    let mut config: HashMap<String, Bindings> = ::toml::from_str(&config).unwrap();
+    process_config(&mut config);
+
     setup_clang();
 
     let min_version = min_nss_version();
@@ -715,12 +726,6 @@ fn main() {
     } else {
         pkg_config(&min_version).unwrap_or_else(|_| setup_standalone(nss_dir()))
     };
-
-    let config_file = PathBuf::from(BINDINGS_DIR).join(BINDINGS_CONFIG);
-    println!("cargo:rerun-if-changed={}", config_file.to_str().unwrap());
-    let config = fs::read_to_string(config_file).expect("unable to read binding configuration");
-    let mut config: HashMap<String, Bindings> = ::toml::from_str(&config).unwrap();
-    process_config(&mut config);
 
     for (k, v) in &config {
         build_bindings(k, v, &flags[..], cfg!(feature = "gecko"));

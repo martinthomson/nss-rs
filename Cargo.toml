@@ -15,6 +15,7 @@ exclude = [
   ".github",
   ".tombi.toml",
   "Cargo.lock",
+  "bindings/bindings.schema.json",
   "package-lock.json",
   "package.json",
   "renovate.json",
