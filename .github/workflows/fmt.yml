@@ -29,4 +29,4 @@ jobs:
       - run: |
           npm ci --ignore-scripts
           npm exec tombi -- lint --offline
-          npm exec tombi -- format --check
+          npm exec tombi -- format --check --offline

@@ -17,6 +17,7 @@ updates:
       semver-major-days: 20
       semver-minor-days: 10
       semver-patch-days: 5
+
   - package-ecosystem: "github-actions"
     directories:
       - "/.github/actions/*"
@@ -40,3 +41,13 @@ updates:
       # semver-patch-days: 5
       exclude:
         - "mozilla/actions*"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 10
+      semver-major-days: 20
+      semver-minor-days: 10
+      semver-patch-days: 5

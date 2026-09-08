@@ -82,10 +82,9 @@ impl Bindings {
             ("enums", &self.enums),
             ("exclude", &self.exclude),
         ] {
-            assert!(
-                values.is_sorted_by(|a, b| a < b),
-                "{name}.{field} is not sorted (or has duplicates): {values:?}"
-            );
+            if let Some([a, b]) = values.windows(2).find(|w| w[0] >= w[1]) {
+                panic!("{name}.{field} is not sorted (or has duplicates): {a:?} >= {b:?}");
+            }
         }
     }
 }
