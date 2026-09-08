@@ -111,7 +111,7 @@ impl CertificateInfo {
 }
 
 /// Private trait for Certificate Compression implementation
-/// Use `SafeCertCompression` to implement an encoder/decoder instead.
+/// Use [`CertificateCompressor`] to implement an encoder/decoder instead.
 pub(crate) trait UnsafeCertCompression {
     extern "C" fn decode_callback(
         input: *const SECItem,
