@@ -5,17 +5,18 @@
 // except according to those terms.
 
 use std::{
+    convert::TryFrom,
     ops::Deref,
     os::raw::c_uint,
     ptr::{addr_of_mut, null, null_mut},
 };
 
 use super::{
-    err::{sec::SEC_ERROR_INVALID_ARGS, secstatus_to_res, Error},
-    p11::{PrivateKey, PublicKey, Slot},
+    err::{Error, sec::SEC_ERROR_INVALID_ARGS, secstatus_to_res},
+    p11::{CKF_DERIVE, CKM_EC_KEY_PAIR_GEN, PrivateKey, PublicKey, Slot},
 };
 use crate::{
-    aead::AeadAlgorithms, err::Res, hkdf::HkdfAlgorithm, p11, p11::SymKey, PRBool, SECItem,
+    PRBool, SECItem, aead::AeadAlgorithms, err::Res, hkdf::HkdfAlgorithm, p11, p11::SymKey,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -267,12 +268,12 @@ pub fn generate_key_pair(kem: KemAlgorithm) -> Result<(PrivateKey, PublicKey), c
         unsafe {
             p11::PK11_GenerateKeyPairWithOpFlags(
                 *slot,
-                p11::CK_MECHANISM_TYPE::from(p11::CKM_EC_KEY_PAIR_GEN),
+                CKM_EC_KEY_PAIR_GEN,
                 wrapped,
                 &mut public_ptr,
                 p11::PK11_ATTR_SESSION | p11::PK11_ATTR_INSENSITIVE | p11::PK11_ATTR_PUBLIC,
-                p11::CK_FLAGS::from(p11::CKF_DERIVE),
-                p11::CK_FLAGS::from(p11::CKF_DERIVE),
+                CKF_DERIVE,
+                CKF_DERIVE,
                 null_mut(),
             )
         }
@@ -284,12 +285,12 @@ pub fn generate_key_pair(kem: KemAlgorithm) -> Result<(PrivateKey, PublicKey), c
         unsafe {
             p11::PK11_GenerateKeyPairWithOpFlags(
                 *slot,
-                p11::CK_MECHANISM_TYPE::from(p11::CKM_EC_KEY_PAIR_GEN),
+                CKM_EC_KEY_PAIR_GEN,
                 addr_of_mut!(wrapped).cast(),
                 &mut public_ptr,
                 p11::PK11_ATTR_SESSION | p11::PK11_ATTR_SENSITIVE | p11::PK11_ATTR_PRIVATE,
-                p11::CK_FLAGS::from(p11::CKF_DERIVE),
-                p11::CK_FLAGS::from(p11::CKF_DERIVE),
+                CKF_DERIVE,
+                CKF_DERIVE,
                 null_mut(),
             )
         }
@@ -305,7 +306,7 @@ pub fn generate_key_pair(kem: KemAlgorithm) -> Result<(PrivateKey, PublicKey), c
 
 #[cfg(test)]
 mod test {
-    use super::{generate_key_pair, Config, HpkeR, HpkeS};
+    use super::{Config, HpkeR, HpkeS, generate_key_pair};
     use crate::{hpke::Aead, init};
 
     const INFO: &[u8] = b"info";

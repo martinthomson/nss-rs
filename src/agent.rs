@@ -785,9 +785,19 @@ impl SecretAgent {
             // Within this scope, _h maintains a mutable reference to self.io.
             let _h = self.io.wrap(input);
             match self.state {
-                HandshakeState::Authenticated(err) => unsafe {
-                    ssl::SSL_AuthCertificateComplete(self.fd, err)
-                },
+                HandshakeState::Authenticated(err) => {
+                    let rv = unsafe { ssl::SSL_AuthCertificateComplete(self.fd, err) };
+                    // SSL_AuthCertificateComplete reports SECSuccess even when
+                    // `err` rejects the certificate, so its result cannot stand
+                    // in for handshake progress. When the certificate was
+                    // rejected, force the handshake so the failure surfaces
+                    // instead of a bogus completion.
+                    if err == 0 {
+                        rv
+                    } else {
+                        unsafe { ssl::SSL_ForceHandshake(self.fd) }
+                    }
+                }
                 _ => unsafe { ssl::SSL_ForceHandshake(self.fd) },
             }
         };
@@ -911,8 +921,9 @@ impl Display for SecretAgent {
     }
 }
 
-#[derive(PartialOrd, Ord, PartialEq, Eq, Clone)]
+#[derive(PartialOrd, Ord, PartialEq, Eq, Clone, derive_more::AsRef)]
 pub struct ResumptionToken {
+    #[as_ref([u8])]
     token: Vec<u8>,
     expiration_time: Instant,
 }
@@ -923,12 +934,6 @@ impl Debug for ResumptionToken {
             .field("token", &hex_snip_middle(&self.token))
             .field("expiration_time", &self.expiration_time)
             .finish()
-    }
-}
-
-impl AsRef<[u8]> for ResumptionToken {
-    fn as_ref(&self) -> &[u8] {
-        &self.token
     }
 }
 
@@ -948,8 +953,10 @@ impl ResumptionToken {
 }
 
 /// A TLS Client.
-#[derive(Debug)]
+#[derive(Debug, derive_more::Deref, derive_more::DerefMut)]
 pub struct Client {
+    #[deref]
+    #[deref_mut]
     agent: SecretAgent,
 
     /// The name of the server we're attempting a connection to.
@@ -1103,19 +1110,6 @@ impl Client {
     }
 }
 
-impl Deref for Client {
-    type Target = SecretAgent;
-    fn deref(&self) -> &SecretAgent {
-        &self.agent
-    }
-}
-
-impl DerefMut for Client {
-    fn deref_mut(&mut self) -> &mut SecretAgent {
-        &mut self.agent
-    }
-}
-
 impl Display for Client {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "Client {:p}", self.agent.fd)
@@ -1166,8 +1160,10 @@ impl ZeroRttCheckState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::Deref, derive_more::DerefMut)]
 pub struct Server {
+    #[deref]
+    #[deref_mut]
     agent: SecretAgent,
     /// This holds the HRR callback context.
     zero_rtt_check: Option<Pin<Box<ZeroRttCheckState>>>,
@@ -1367,19 +1363,6 @@ impl Server {
     }
 }
 
-impl Deref for Server {
-    type Target = SecretAgent;
-    fn deref(&self) -> &SecretAgent {
-        &self.agent
-    }
-}
-
-impl DerefMut for Server {
-    fn deref_mut(&mut self) -> &mut SecretAgent {
-        &mut self.agent
-    }
-}
-
 impl Display for Server {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "Server {:p}", self.agent.fd)
@@ -1387,7 +1370,7 @@ impl Display for Server {
 }
 
 /// A generic container for Client or Server.
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Agent {
     Client(Client),
     Server(Server),
@@ -1409,18 +1392,6 @@ impl DerefMut for Agent {
             Self::Client(c) => c,
             Self::Server(s) => s,
         }
-    }
-}
-
-impl From<Client> for Agent {
-    fn from(c: Client) -> Self {
-        Self::Client(c)
-    }
-}
-
-impl From<Server> for Agent {
-    fn from(s: Server) -> Self {
-        Self::Server(s)
     }
 }
 

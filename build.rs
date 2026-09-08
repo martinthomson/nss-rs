@@ -19,7 +19,10 @@ use std::{
     process::Command,
 };
 
-use bindgen::Builder;
+use bindgen::{
+    Builder,
+    callbacks::{IntKind, ParseCallbacks},
+};
 use semver::{Version, VersionReq};
 use serde_derive::Deserialize;
 
@@ -219,7 +222,42 @@ fn build_nss(dir: PathBuf) {
     assert!(status.success(), "NSS build failed");
 }
 
-fn dynamic_link() {
+/// A library name without the `lib` prefix or any extension, so that the names we link and
+/// the files on disk can be compared: `nss3` for `nss3`, `libnss3.so.3` and `nss3.dll`.
+fn lib_stem(name: &str) -> &str {
+    let name = name.strip_prefix("lib").unwrap_or(name);
+    name.split_once('.').map_or(name, |(stem, _)| stem)
+}
+
+/// Emit the link search path for `dir`, and re-run the build script when any of `libs`
+/// found there changes or goes away.
+///
+/// Naming the library files rather than `dir` keeps Cargo from scanning a shared system
+/// library directory recursively on every freshness check.  Only files that are present are
+/// named, because a path that is already absent makes Cargo treat the script as dirty on
+/// every later build.
+fn link_search<S: AsRef<str>>(dir: &Path, libs: &[S]) {
+    println!("cargo:rustc-link-search=native={}", dir.display());
+    let wanted: HashSet<&str> = libs.iter().map(|l| lib_stem(l.as_ref())).collect();
+    let Ok(entries) = fs::read_dir(dir) else {
+        println!(
+            "cargo:warning=can't read {}, so NSS changes there won't trigger a rebuild",
+            dir.display()
+        );
+        return;
+    };
+    for entry in entries.flatten() {
+        let (name, path) = (entry.file_name(), entry.path());
+        let (Some(name), Some(path)) = (name.to_str(), path.to_str()) else {
+            continue;
+        };
+        if !path.contains('\n') && wanted.contains(lib_stem(name)) {
+            println!("cargo:rerun-if-changed={path}");
+        }
+    }
+}
+
+fn dynamic_link() -> Vec<&'static str> {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let dynamic_libs = if target_os == "windows" {
         [
@@ -236,16 +274,21 @@ fn dynamic_link() {
     for lib in dynamic_libs {
         println!("cargo:rustc-link-lib=dylib={lib}");
     }
-    maybe_link_freebl3();
+    dynamic_libs
+        .into_iter()
+        .chain(maybe_link_freebl3())
+        .collect()
 }
 
-fn maybe_link_freebl3() {
+fn maybe_link_freebl3() -> Option<&'static str> {
     if env::var("CARGO_FEATURE_BLAPI").is_ok() {
         println!("cargo:rustc-link-lib=dylib=freebl3");
+        return Some("freebl3");
     }
+    None
 }
 
-fn static_link() {
+fn static_link(libdir: &Path) -> Vec<&'static str> {
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let mut static_libs = vec![
         "certdb",
@@ -305,15 +348,51 @@ fn static_link() {
         static_libs.push("hw-acc-crypto-avx2");
         static_libs.push("intel-gcm-wrap_c_lib");
     }
-    for lib in static_libs {
+    // For libraries added in an NSS version greater than our minimum,
+    // check that they are present before linking them.
+    for libname in ["pqcwrap_static", "crux"] {
+        if [format!("{libname}.lib"), format!("lib{libname}.a")]
+            .iter()
+            .any(|f| libdir.join(f).is_file())
+        {
+            static_libs.push(libname);
+        }
+    }
+    for lib in &static_libs {
         println!("cargo:rustc-link-lib=static={lib}");
     }
+    static_libs
 }
 
 fn get_includes(nsstarget: &Path, nssdist: &Path) -> Vec<PathBuf> {
     let nsprinclude = nsstarget.join("include").join("nspr");
     let nssinclude = nssdist.join("public").join("nss");
     vec![nsprinclude, nssinclude]
+}
+
+/// Type PKCS#11 `#define`s as the `CK_*` typedefs they belong to. Bindgen otherwise picks the
+/// smallest integer that fits the value, which needs a conversion at every use.
+#[derive(Debug)]
+struct Pkcs11Types;
+
+impl ParseCallbacks for Pkcs11Types {
+    fn int_macro(&self, name: &str, _: i64) -> Option<IntKind> {
+        // `CKD_*` gets CK_ULONG because CK_EC_KDF_TYPE isn't among the generated types, and
+        // that is what PK11_PubDeriveWithKDF's `kdf` parameter is declared as anyway.
+        let name = match name {
+            "CK_INVALID_HANDLE" => "CK_OBJECT_HANDLE",
+            n if n.starts_with("CKA_") => "CK_ATTRIBUTE_TYPE",
+            n if n.starts_with("CKF_") => "CK_FLAGS",
+            n if n.starts_with("CKG_") => "CK_GENERATOR_FUNCTION",
+            n if n.starts_with("CKM_") => "CK_MECHANISM_TYPE",
+            n if n.starts_with("CKD_") || n.starts_with("CK_") => "CK_ULONG",
+            _ => return None,
+        };
+        Some(IntKind::Custom {
+            name,
+            is_signed: false,
+        })
+    }
 }
 
 fn build_bindings(base: &str, bindings: &Bindings, flags: &[String], gecko: bool) {
@@ -327,6 +406,9 @@ fn build_bindings(base: &str, bindings: &Bindings, flags: &[String], gecko: bool
     let mut builder = Builder::default().header(header);
     builder = builder.generate_comments(false);
     builder = builder.size_t_is_usize(true);
+    if base == "nss_p11" {
+        builder = builder.parse_callbacks(Box::new(Pkcs11Types));
+    }
 
     builder = builder.clang_arg("-v");
 
@@ -344,7 +426,7 @@ fn build_bindings(base: &str, bindings: &Bindings, flags: &[String], gecko: bool
             builder = builder.clang_arg("-DANDROID");
         }
         if bindings.cplusplus {
-            builder = builder.clang_args(&["-x", "c++", "-std=c++14"]);
+            builder = builder.clang_args(["-x", "c++", "-std=c++14"]);
         }
     }
 
@@ -412,15 +494,16 @@ fn pkg_config(min_version: &str) -> Result<Vec<String>, Box<dyn Error>> {
 
     let mut flags: Vec<String> = Vec::new();
     let mut lib_dirs: Vec<PathBuf> = Vec::new();
+    let mut libs: Vec<&str> = Vec::new();
 
     for f in cfg_str.split_whitespace() {
         if f.starts_with("-I") {
             flags.push(String::from(f));
         } else if let Some(path) = f.strip_prefix("-L") {
-            println!("cargo:rustc-link-search=native={path}");
             lib_dirs.push(PathBuf::from(path));
         } else if let Some(lib) = f.strip_prefix("-l") {
             println!("cargo:rustc-link-lib=dylib={lib}");
+            libs.push(lib);
         } else {
             println!("cargo:warning=Unknown flag from pkg-config: {f}");
         }
@@ -439,21 +522,22 @@ fn pkg_config(min_version: &str) -> Result<Vec<String>, Box<dyn Error>> {
             if !trimmed.is_empty() {
                 let dir = PathBuf::from(trimmed);
                 if !lib_dirs.contains(&dir) {
-                    println!("cargo:rustc-link-search=native={}", dir.display());
                     lib_dirs.push(dir);
                 }
             }
         }
     }
-    maybe_link_freebl3();
+    libs.extend(maybe_link_freebl3());
+
+    for dir in &lib_dirs {
+        link_search(dir, &libs);
+    }
 
     Ok(flags)
 }
 
 fn setup_standalone(nss_dir: String) -> Vec<String> {
     let nss = PathBuf::from(nss_dir);
-    println!("cargo:rerun-if-env-changed=NSS_DIR");
-    println!("cargo:rerun-if-env-changed=NSS_PREBUILT");
 
     // $NSS_DIR/../dist/
     let nssdist = nss.parent().unwrap().join("dist");
@@ -469,19 +553,16 @@ fn setup_standalone(nss_dir: String) -> Vec<String> {
     let includes = get_includes(&nsstarget, &nssdist);
 
     let nsslibdir = nsstarget.join("lib");
-    println!(
-        "cargo:rustc-link-search=native={}",
-        nsslibdir.to_str().unwrap()
-    );
-    if env::var("CARGO_CFG_FUZZING").is_ok()
+    let libs = if env::var("CARGO_CFG_FUZZING").is_ok()
         || env::var("PROFILE").unwrap_or_default() == "debug"
         // FIXME: NSPR doesn't build proper dynamic libraries on Windows.
         || env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows"
     {
-        static_link();
+        static_link(&nsslibdir)
     } else {
-        dynamic_link();
-    }
+        dynamic_link()
+    };
+    link_search(&nsslibdir, &libs);
 
     let mut flags: Vec<String> = Vec::new();
     for i in includes {
@@ -509,34 +590,23 @@ fn setup_for_gecko() -> Vec<String> {
         println!("cargo:rustc-link-lib=dylib={}", lib);
     }
 
-    if fold_libs {
-        println!(
-            "cargo:rustc-link-search=native={}",
-            TOPOBJDIR.join("security").display()
-        );
+    let lib_dirs = if fold_libs {
+        vec![TOPOBJDIR.join("security")]
     } else {
-        println!(
-            "cargo:rustc-link-search=native={}",
-            TOPOBJDIR.join("dist").join("bin").display()
-        );
         let nsslib_path = TOPOBJDIR.join("security").join("nss").join("lib");
-        println!(
-            "cargo:rustc-link-search=native={}",
-            nsslib_path.join("nss").join("nss_nss3").display()
-        );
-        println!(
-            "cargo:rustc-link-search=native={}",
-            nsslib_path.join("ssl").join("ssl_ssl3").display()
-        );
-        println!(
-            "cargo:rustc-link-search=native={}",
+        vec![
+            TOPOBJDIR.join("dist").join("bin"),
+            nsslib_path.join("nss").join("nss_nss3"),
+            nsslib_path.join("ssl").join("ssl_ssl3"),
             TOPOBJDIR
                 .join("config")
                 .join("external")
                 .join("nspr")
-                .join("pr")
-                .display()
-        );
+                .join("pr"),
+        ]
+    };
+    for dir in &lib_dirs {
+        link_search(dir, &libs);
     }
 
     let mut flags = BINDGEN_SYSTEM_FLAGS
@@ -607,6 +677,21 @@ fn main() {
 
     let min_version = min_nss_version();
     println!("cargo:rustc-env=NSS_MIN_VERSION={min_version}");
+
+    // These select which NSS installation is used, or which flags pkg-config reports.
+    for var in [
+        "NSS_DIR",
+        "NSS_PREBUILT",
+        "PKG_CONFIG_PATH",
+        "PKG_CONFIG_LIBDIR",
+        "PKG_CONFIG_SYSROOT_DIR",
+        "PKG_CONFIG_SYSTEM_LIBRARY_PATH",
+        "PKG_CONFIG_SYSTEM_INCLUDE_PATH",
+        "PKG_CONFIG_ALLOW_SYSTEM_LIBS",
+        "PKG_CONFIG_ALLOW_SYSTEM_CFLAGS",
+    ] {
+        println!("cargo:rerun-if-env-changed={var}");
+    }
 
     let flags = if cfg!(feature = "gecko") {
         setup_for_gecko()
