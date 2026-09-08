@@ -72,6 +72,23 @@ struct Bindings {
     cplusplus: bool,
 }
 
+impl Bindings {
+    fn check_sorted(&self, name: &str) {
+        macro_rules! assert_sorted {
+            ($s:ident, $n:ident: $($f:ident),+) => {
+                $(
+                    assert!(
+                        $s.$f.is_sorted(),
+                        concat!("{}.", stringify!($f), " not sorted: {:?}"),
+                        $n, $s.$f,
+                    );
+                )+
+            };
+        }
+        assert_sorted!(self, name: types, functions, variables, opaque, enums, exclude);
+    }
+}
+
 // bindgen needs access to libclang.
 // On windows, this doesn't just work, you have to set LIBCLANG_PATH.
 // Rather than download the 400Mb+ files, like gecko does, let's just reuse their work.
@@ -635,38 +652,31 @@ fn setup_for_gecko() -> Vec<String> {
 }
 
 fn process_config(config: &mut HashMap<String, Bindings>) {
-    let mut excludes = HashMap::new();
-    for header in config.keys().cloned() {
+    for (k, v) in config.iter() {
+        v.check_sorted(k);
+    }
+
+    let names = config.keys().cloned().collect::<Vec<_>>();
+    for name in names {
         // Collect the list of types, functions, and variables configured
         // for generation in any other configured header, and add it to the list
         // of items excluded from generation in this header. This ensures that
         // each item only appears in one bindings module, which prevents some
         // type conflicts. (However, it does mean that appropriate `use`
         // declarations must be added for the generated modules.)
-        excludes.insert(
-            header.clone(),
-            config
-                .iter()
-                .flat_map(|(h, b)| {
-                    if *h == header {
-                        vec![]
-                    } else {
-                        vec![&b.types, &b.functions, &b.variables]
-                    }
-                    .into_iter()
-                    .flat_map(|v| v.iter())
-                    .cloned()
-                })
-                .collect::<HashSet<String>>(),
-        );
-    }
+        let excl = config
+            .iter()
+            .filter(|(k, _)| **k != name)
+            .flat_map(|(_, b)| [&b.types, &b.functions, &b.variables])
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
 
-    for (header, excludes) in excludes {
         config
-            .get_mut(&header)
-            .expect("key disappeared from config?")
+            .get_mut(&name)
+            .expect("this is impossible")
             .exclude
-            .extend(excludes);
+            .extend(excl);
     }
 }
 
