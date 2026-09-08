@@ -136,8 +136,8 @@ types = [
   "CK_BBOOL",
   "CK_CHACHA20_PARAMS",
   "CK_GCM_MESSAGE_PARAMS",
-  # "CK_ULONG", // Uncommenting this breaks nss_ssl bindings
   "CK_HKDF_PARAMS",
+  # "CK_ULONG", // Uncommenting this breaks nss_ssl bindings
   "HpkeAeadId",
   "HpkeKdfId",
   "HpkeKemId",

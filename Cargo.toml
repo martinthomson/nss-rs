@@ -13,7 +13,10 @@ repository.workspace = true
 exclude = [
   ".deny.toml",
   ".github",
+  ".tombi.toml",
   "Cargo.lock",
+  "package.json",
+  "package-lock.json",
   "renovate.json",
 ]
 
@@ -131,22 +134,22 @@ unused_qualifications = "warn"
 bench = false
 
 [dependencies]
-derive_more = {
-  version = "2",
-  default-features = false,
-  features = [
-    "as_ref",
-    "deref",
-    "deref_mut",
-    "from",
-    "into_iterator",
-  ]
-}
 enum-map = { version = "2.7", default-features = false }
 log = { workspace = true }
 strum = { version = "0.27", default-features = false, features = ["derive"] }
 thiserror = "2"
 zeroize = { version = "1", default-features = false, features = ["derive"], optional = true }
+
+[dependencies.derive_more]
+version = "2"
+default-features = false
+features = [
+  "as_ref",
+  "deref",
+  "deref_mut",
+  "from",
+  "into_iterator",
+]
 
 [dev-dependencies]
 test-fixture = { path = "test-fixture" }

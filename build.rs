@@ -74,18 +74,19 @@ struct Bindings {
 
 impl Bindings {
     fn check_sorted(&self, name: &str) {
-        macro_rules! assert_sorted {
-            ($s:ident, $n:ident: $($f:ident),+) => {
-                $(
-                    assert!(
-                        $s.$f.is_sorted(),
-                        concat!("{}.", stringify!($f), " not sorted: {:?}"),
-                        $n, $s.$f,
-                    );
-                )+
-            };
+        for (field, values) in [
+            ("types", &self.types),
+            ("functions", &self.functions),
+            ("variables", &self.variables),
+            ("opaque", &self.opaque),
+            ("enums", &self.enums),
+            ("exclude", &self.exclude),
+        ] {
+            assert!(
+                values.is_sorted_by(|a, b| a < b),
+                "{name}.{field} is not sorted (or has duplicates): {values:?}"
+            );
         }
-        assert_sorted!(self, name: types, functions, variables, opaque, enums, exclude);
     }
 }
 
@@ -652,8 +653,8 @@ fn setup_for_gecko() -> Vec<String> {
 }
 
 fn process_config(config: &mut HashMap<String, Bindings>) {
-    for (k, v) in config.iter() {
-        v.check_sorted(k);
+    for (n, b) in config.iter() {
+        b.check_sorted(n);
     }
 
     let names = config.keys().cloned().collect::<Vec<_>>();
@@ -666,7 +667,7 @@ fn process_config(config: &mut HashMap<String, Bindings>) {
         // declarations must be added for the generated modules.)
         let excl = config
             .iter()
-            .filter(|(k, _)| **k != name)
+            .filter(|(n, _)| **n != name)
             .flat_map(|(_, b)| [&b.types, &b.functions, &b.variables])
             .flatten()
             .cloned()
@@ -674,9 +675,14 @@ fn process_config(config: &mut HashMap<String, Bindings>) {
 
         config
             .get_mut(&name)
-            .expect("this is impossible")
+            .expect("key disappeared from config?") // impossible
             .exclude
             .extend(excl);
+    }
+
+    for b in config.values_mut() {
+        b.exclude.sort_unstable();
+        b.exclude.dedup();
     }
 }
 
