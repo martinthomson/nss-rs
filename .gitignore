@@ -1,5 +1,6 @@
-/target
 **/*.rs.bk
-/nss
-/nspr
 /dist
+/node_modules/
+/nspr
+/nss
+/target

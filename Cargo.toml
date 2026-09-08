@@ -1,41 +1,50 @@
+[package]
+name = "nss-rs"
+version = "0.15.0"
+authors = ["Martin Thomson <mt@lowentropy.net>", "Andy Leiserson <aleiserson@mozilla.com>", "John M. Schanck <jschanck@mozilla.com>", "Benjamin Beurdouche <beurdouche@mozilla.com>", "Anna Weine <anna.weine@mozilla.com>"]
+categories = ["network-programming", "web-programming"]
+keywords = ["crypto", "firefox", "mozilla", "nss"]
+edition.workspace = true
+rust-version.workspace = true
+build = "build.rs"
+license.workspace = true
+description = "Gecko API for NSS"
+repository.workspace = true
+exclude = [
+  ".deny.toml",
+  ".github",
+  "Cargo.lock",
+  "renovate.json",
+]
+
+[package.metadata.nss]
+# Minimum NSS version required for nss-rs.
+min-version = "3.126"
+# SHA256 of the 'nss-<min-version>-with-nspr-<some-version>.tar.gz' release tarball.
+sha256 = "c95a4cf93d6939000642254422d71dffccb5c017d0f40733d3e2be18aa93f1be"
+
+[package.metadata.cargo-machete]
+ignored = ["bindgen", "semver", "serde", "serde_derive", "toml"]
+
 [workspace]
 members = ["test-fixture"]
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.90.0"
-license = "MIT OR Apache-2.0"
 repository = "https://github.com/mozilla/nss-rs"
+license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 log = { version = "0.4", default-features = false }
 nss-rs = { path = "." }
 
-[workspace.lints.rust]
-absolute_paths_not_starting_with_crate = "warn"
-ambiguous_negative_literals = "warn"
-explicit_outlives_requirements = "warn"
-macro_use_extern_crate = "warn"
-missing_abi = "warn"
-non_ascii_idents = "warn"
-redundant_imports = "warn"
-redundant_lifetimes = "warn"
-trivial_numeric_casts = "warn"
-unit_bindings = "warn"
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(coverage,coverage_nightly,fuzzing)'] }
-unused_import_braces = "warn"
-unused_lifetimes = "warn"
-unused_macro_rules = "warn"
-unused_qualifications = "warn"
-
 [workspace.lints.clippy]
-cargo = { level = "warn", priority = -1 }
-cargo_common_metadata = "allow"
-nursery = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
 allow_attributes = "warn"
 allow_attributes_without_reason = "allow"
-assert_is_empty = "allow" # We prefer using is_empty() in asserts.
+assert_is_empty = "allow"  # We prefer using is_empty() in asserts.
+cargo = { level = "warn", priority = -1 }
+cargo_common_metadata = "allow"
 cfg_not_test = "warn"
 clone_on_ref_ptr = "warn"
 create_dir = "warn"
@@ -71,8 +80,10 @@ mutex_integer = "warn"
 needless_raw_strings = "warn"
 non_ascii_literal = "warn"
 non_zero_suggestions = "warn"
+nursery = { level = "warn", priority = -1 }
 partial_pub_fields = "warn"
 pathbuf_init_then_push = "warn"
+pedantic = { level = "warn", priority = -1 }
 precedence_bits = "warn"
 pub_without_shorthand = "warn"
 rc_buffer = "warn"
@@ -98,47 +109,47 @@ unwrap_in_result = "warn"
 unwrap_used = "warn"
 verbose_file_reads = "warn"
 
-[package]
-name = "nss-rs"
-version = "0.15.0"
-authors = ["Martin Thomson <mt@lowentropy.net>", "Andy Leiserson <aleiserson@mozilla.com>", "John M. Schanck <jschanck@mozilla.com>", "Benjamin Beurdouche <beurdouche@mozilla.com>", "Anna Weine <anna.weine@mozilla.com>"]
-categories = ["network-programming", "web-programming"]
-keywords = ["nss", "crypto", "mozilla", "firefox"]
-edition.workspace = true
-rust-version.workspace = true
-build = "build.rs"
-license.workspace = true
-description = "Gecko API for NSS"
-repository.workspace = true
-exclude = [
-    ".deny.toml",
-    ".github",
-    "Cargo.lock",
-    "renovate.json",
-]
+[workspace.lints.rust]
+absolute_paths_not_starting_with_crate = "warn"
+ambiguous_negative_literals = "warn"
+explicit_outlives_requirements = "warn"
+macro_use_extern_crate = "warn"
+missing_abi = "warn"
+non_ascii_idents = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage,coverage_nightly,fuzzing)"] }
+unit_bindings = "warn"
+unused_import_braces = "warn"
+unused_lifetimes = "warn"
+unused_macro_rules = "warn"
+unused_qualifications = "warn"
 
-[package.metadata.nss]
-# Minimum NSS version required for nss-rs.
-min-version = "3.126"
-# SHA256 of the 'nss-<min-version>-with-nspr-<some-version>.tar.gz' release tarball.
-sha256 = "c95a4cf93d6939000642254422d71dffccb5c017d0f40733d3e2be18aa93f1be"
+[lib]
+# See https://github.com/bheisler/criterion.rs/blob/master/book/src/faq.md#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
 
 [dependencies]
-derive_more = { version = "2", default-features = false, features = [
+derive_more = {
+  version = "2",
+  default-features = false,
+  features = [
     "as_ref",
     "deref",
     "deref_mut",
     "from",
     "into_iterator",
-] }
+  ]
+}
 enum-map = { version = "2.7", default-features = false }
 log = { workspace = true }
 strum = { version = "0.27", default-features = false, features = ["derive"] }
 thiserror = "2"
 zeroize = { version = "1", default-features = false, features = ["derive"], optional = true }
 
-[target.'cfg(windows)'.dependencies]
-windows = { version = ">=0.60,<0.63", features = ["Win32_Security_Authentication_Identity"]}
+[dev-dependencies]
+test-fixture = { path = "test-fixture" }
 
 [build-dependencies]
 bindgen = { version = "0.72", default-features = false, features = ["runtime"] }
@@ -148,14 +159,8 @@ serde = { version = "1", default-features = false, features = ["std"] }
 serde_derive = { version = "1", default-features = false }
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
 
-[dev-dependencies]
-test-fixture = { path = "test-fixture" }
-
-[package.metadata.cargo-machete]
-ignored = ["bindgen", "semver", "serde", "serde_derive", "toml"]
-
-[lints]
-workspace = true
+[target."cfg(windows)".dependencies]
+windows = { version = ">=0.60,<0.63", features = ["Win32_Security_Authentication_Identity"] }
 
 [features]
 bench = ["log/release_max_level_info"]
@@ -166,6 +171,5 @@ disable-encryption = []
 disable-random = []
 gecko = ["mozbuild"]
 
-[lib]
-# See https://github.com/bheisler/criterion.rs/blob/master/book/src/faq.md#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
-bench = false
+[lints]
+workspace = true

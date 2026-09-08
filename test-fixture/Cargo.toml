@@ -8,6 +8,13 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[package.metadata.cargo-machete]
+ignored = ["log"]
+
+[lib]
+# See https://github.com/bheisler/criterion.rs/blob/master/book/src/faq.md#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
 [dependencies]
 log = { workspace = true }
 nss-rs = { workspace = true }
@@ -16,12 +23,5 @@ nss-rs = { workspace = true }
 bench = ["nss-rs/bench"]
 disable-random = []
 
-[package.metadata.cargo-machete]
-ignored = ["log"]
-
 [lints]
 workspace = true
-
-[lib]
-# See https://github.com/bheisler/criterion.rs/blob/master/book/src/faq.md#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
-bench = false

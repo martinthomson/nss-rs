@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/mozilla/nss-rs/main/bindings/bindings.schema",
+  "title": "NSS bindings configuration",
+  "description": "Configuration for the bindgen invocations in build.rs. Every key corresponds to a header file in this directory (`<key>.h`, or `<key>.hpp` when `cplusplus` is set) and produces a binding file of the same name in $OUT_DIR. Items named in the `types`, `functions`, and `variables` of one header are automatically added to the `exclude` list of every other header, so each item is only generated in one module.",
+  "type": "object",
+  "propertyNames": {
+    "pattern": "^[A-Za-z0-9_]+$"
+  },
+  "additionalProperties": {
+    "$ref": "#/$defs/bindings"
+  },
+  "$defs": {
+    "bindings": {
+      "title": "Header bindings",
+      "description": "What to generate from a single header file.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "types": {
+          "description": "Types that are explicitly included.",
+          "$ref": "#/$defs/itemList"
+        },
+        "functions": {
+          "description": "Functions that are explicitly included.",
+          "$ref": "#/$defs/itemList"
+        },
+        "variables": {
+          "description": "Variables (and `#define`s) that are explicitly included.",
+          "$ref": "#/$defs/itemList"
+        },
+        "opaque": {
+          "description": "Types that should be explicitly marked as opaque. Use this for things that are only needed in function signatures.",
+          "$ref": "#/$defs/itemList"
+        },
+        "enums": {
+          "description": "Enumerations that are turned into a module. Without this, the enum is mapped using the default, which means that individual values are named <enum_type>_<enum_value_name>.",
+          "$ref": "#/$defs/itemList"
+        },
+        "exclude": {
+          "description": "Items that are specifically excluded. If none of `types`, `functions`, or `variables` is specified, everything defined in the header will be mapped, so this can be used to limit that.",
+          "$ref": "#/$defs/itemList"
+        },
+        "cplusplus": {
+          "description": "Whether the header is to be interpreted as C++; this selects a `.hpp` extension instead of `.h`.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "itemList": {
+      "description": "Regular expressions matching C identifiers, which are matched in full. Entries must be sorted (build.rs asserts this) and unique.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/item"
+      },
+      "x-tombi-array-values-order": "ascending"
+    },
+    "item": {
+      "description": "A regular expression that is matched against the whole name of a C identifier.",
+      "type": "string",
+      "format": "regex",
+      "minLength": 1
+    }
+  }
+}
