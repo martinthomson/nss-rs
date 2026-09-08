@@ -174,13 +174,17 @@ jobs:
         env:
           OS: ${{ matrix.os }}
         run: |
+          # Loose cap: the report quotes at most 10000 anyway.
           jq -n --arg os "$OS" --arg broken "$BROKEN" \
             --arg no_build "${NO_BUILD:-false}" --arg self_broken "${SELF_BROKEN:-false}" \
             --arg first_bad "${FIRST_BAD:-}" --arg subject "${SUBJECT:-}" \
             --rawfile log nss-head.log \
             '{os: $os, broken: ($broken == "true"), no_build: ($no_build == "true"),
               self_broken: ($self_broken == "true"),
-              first_bad: $first_bad, subject: $subject, log: $log[-4000:]}' > verdict.json
+              first_bad: $first_bad, subject: $subject,
+              log: ($log | split("\n")
+                | (map(test("error(\\[[^]]*\\])?:|error [A-Z]+[0-9]+:|panicked at|^failures:")) | index(true) // 0) as $i
+                | .[$i:] | join("\n") | .[:20000])}' > verdict.json
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
@@ -215,6 +219,8 @@ jobs:
       BUGZILLA: ${{ inputs.test-bugzilla && 'https://bugzilla-dev.allizom.org/rest' || 'https://bugzilla.mozilla.org/rest' }}
       # Identifies the bug this workflow owns, so it can update and close it.
       MARKER: "[nss-rs-head]"
+      # Added when this workflow closes that bug itself.
+      FIXED: "[nss-rs-head-fixed]"
       # A missing test key must not fall through to the production one.
       BUGZILLA_API_KEY: ${{ inputs.test-bugzilla && secrets.BUGZILLA_TEST_API_KEY || (!inputs.test-bugzilla && secrets.BUGZILLA_API_KEY) || '' }} # zizmor: ignore[secrets-outside-env]
       HEAD_SHA: ${{ needs.setup.outputs.head }}
@@ -249,76 +255,132 @@ jobs:
           bz() {
             local method=$1 path=$2
             shift 2
-            # Retry only reads: a retried POST can file the same bug twice.
-            local retry=()
-            [ "$method" != GET ] || retry=(--retry 3 --retry-all-errors)
+            # Retry only reads: a retried write could file the same bug twice.
+            local opts=(--max-time 300) # attachments are megabytes
+            [ "$method" != GET ] || opts=(--max-time 60 --retry 3 --retry-all-errors)
             # No -L: curl keeps custom headers across a cross-host redirect.
-            curl -fsS --max-time 60 "${retry[@]}" -X "$method" "$BUGZILLA/$path" \
+            curl -fsS "${opts[@]}" -X "$method" "$BUGZILLA/$path" \
               -H "X-BUGZILLA-API-KEY: $BUGZILLA_API_KEY" \
               -H "Content-Type: application/json" "$@"
           }
           # A dry run still searches and builds the payloads, but posts nothing.
-          mutate() { # method path payload
-            [ "$DRY_RUN" == "true" ] || { bz "$1" "$2" -d "$3"; return; }
-            { echo "dry-run: $1 $BUGZILLA/$2"; jq . <<< "$3"; } >&2
-            echo '{"id": "(dry-run)"}'
+          # Payloads go by file: one argv entry caps at 128k, and -d strips newlines.
+          mutate() { # method path payload-file
+            [ "$DRY_RUN" == "true" ] || { bz "$1" "$2" --data-binary "@$3"; return; }
+            # Only attachment data runs past the comment cap.
+            { echo "dry-run: $1 $BUGZILLA/$2"
+              jq 'walk(if type == "string" and length > 65535 then "\(length) chars" else . end)' "$3"
+            } >&2
+            # Numeric, so the attachment payloads are still built and previewed.
+            echo '{"id": 0}'
           }
           show="${BUGZILLA%/rest}/show_bug.cgi?id="
-          id=$(bz GET bug -G \
+          bugs=$(bz GET bug -G \
             --data-urlencode "whiteboard=$MARKER" \
-            --data-urlencode "resolution=---" \
-            --data-urlencode "order=bug_id" \
-            --data-urlencode "include_fields=id" | jq -r '.bugs[0].id // ""')
+            --data-urlencode "include_fields=id,is_open,whiteboard")
+          # An open bug always wins; a closed one without $FIXED was closed by hand.
+          ours=$(jq -c '[.bugs[] | select(.is_open)] | max_by(.id) // {}' <<< "$bugs")
+          id=$(jq -r '.id // ""' <<< "$ours")
+          closed=$(jq -r --arg f "$FIXED" '[.bugs[] | select(.is_open | not)
+            | select((.whiteboard // "") | index($f) == null) | .id] | max // ""' <<< "$bugs")
+          # Our token on an open bug: we closed it and triage disagreed.
+          reopened=$(jq -r --arg f "$FIXED" \
+            'if ((.whiteboard // "") | index($f)) then "true" else "false" end' <<< "$ours")
 
           if [ "$BROKEN" == "false" ]; then
             # A timed-out platform uploads no verdict, so the rest look green.
             [ "$HEAD_RESULT" == "success" ] ||
               { echo "::warning::Not every platform reported; leaving bug $id alone"; exit 0; }
             [ -n "$id" ] || { echo "NSS head is fine and no bug is open."; exit 0; }
+            [ "$reopened" != "true" ] ||
+              { echo "::notice::$show$id was reopened after we closed it; leaving it open"; exit 0; }
             body="nss-rs builds and tests cleanly against NSS head $HEAD_SHA on every platform, so this is fixed. Closed automatically by $RUN."
-            mutate PUT "bug/$id" "$(jq -n --arg c "$body" \
-              '{status: "RESOLVED", resolution: "WORKSFORME", comment: {body: $c}}')" > /dev/null
+            jq -n --arg c "$body" --arg f "$FIXED" --argjson b "$ours" \
+              '{status: "RESOLVED", resolution: "WORKSFORME",
+                whiteboard: ((($b.whiteboard // "") + " " + $f) | gsub("^\\s+|\\s+$"; "")),
+                comment: {body: $c}}' > payload.json
+            mutate PUT "bug/$id" payload.json > /dev/null
             echo "::notice::Closed $show$id"
             exit 0
           fi
 
-          failed=$(jq -r '[.[] | select(.broken) | .os] | join(", ")' all.json)
-          detail=$(jq -r '.[] | select(.broken) |
-            "## \(.os)\n\n\(if .no_build then "NSS head does not build."
-              elif .self_broken then "nss-rs also fails at the last known-good revision, so this may not be an NSS regression."
-              elif .first_bad == "" then "First bad commit: bisect inconclusive"
-              else "First bad commit: \(.first_bad) \(.subject)\n  https://github.com/mozilla/nss/commit/\(.first_bad)" end)\n\n```\n\(.log)\n```\n"' all.json)
-          body=$(cat <<EOF
-          Building and testing nss-rs (https://github.com/mozilla/nss-rs) against NSS
-          head $HEAD_SHA fails on: $failed
+          # Untag before any early exit, or a later closure by hand reads as ours.
+          if [ "$reopened" == "true" ]; then
+            jq -n --arg f "$FIXED" --argjson b "$ours" \
+              '{whiteboard: ($b.whiteboard // "" | split($f) | join(" ")
+                | gsub("\\s+"; " ") | gsub("^\\s+|\\s+$"; ""))}' > payload.json
+            mutate PUT "bug/$id" payload.json > /dev/null
+            echo "::notice::Reopened, so dropped $FIXED from $show$id"
+          fi
 
-          $detail
+          # Closing the bug is a decision to stop hearing about this.
+          if [ -z "$id" ] && [ -n "$closed" ]; then
+            echo "::notice::Bug $show$closed was closed by hand; not filing another. Remove $MARKER from its whiteboard to re-enable reporting."
+            exit 0
+          fi
 
-          Reported automatically by $RUN
-          nss-rs-fingerprint: $FINGERPRINT
-          EOF
-          )
+          jq '[.[] | select(.broken)]' all.json > broken.json
+          failed=$(jq -r 'map(.os) | join(", ")' broken.json)
           if [ "$NO_BUILD" == "true" ]; then
             echo "::warning::NSS head does not build on $failed; not filing"
             exit 0
           fi
-          summary="nss-rs fails against NSS head on $failed"
+
+          # 10000 a platform, but a comment caps at 65535 however many failed.
+          detail=$(jq -r '([10000, 55000 / length] | min | floor) as $n | .[] |
+            "## \(.os)\n\n\(if .no_build then "NSS head does not build."
+              elif .self_broken then "nss-rs also fails at the last known-good revision, so this may not be an NSS regression."
+              elif .first_bad == "" then "First bad commit: bisect inconclusive"
+              else "First bad commit: \(.first_bad) \(.subject)\n  https://github.com/mozilla/nss/commit/\(.first_bad)" end)\n\n```\n\(.log | if length > $n then .[:$n] | sub("\n[^\n]*$"; "") else . end)\n```\n"' broken.json)
+          body=$(cat <<EOF
+          Building and testing nss-rs (https://github.com/mozilla/nss-rs) against NSS head $HEAD_SHA fails on: $failed
+
+          $detail
+
+          Reported automatically by $RUN; remove $MARKER from the whiteboard to stop these reports.
+          nss-rs-fingerprint: $FINGERPRINT
+          EOF
+          )
+          culprit=$(jq -r 'map(.first_bad) | unique
+            | if length == 1 and .[0] != "" then "; first bad commit \(.[0][0:12])" else "" end' broken.json)
+          summary="nss-rs fails against NSS head$culprit"
+          # With no single culprit, name the platforms rather than nothing.
+          [ -n "$culprit" ] || summary="nss-rs fails against NSS head on $failed"
           if [ -z "$id" ]; then
-            id=$(mutate POST bug "$(jq -n --arg s "$summary" \
-              --arg d "$body" --arg w "$MARKER" \
+            jq -n --arg s "$summary" --arg d "$body" --arg w "$MARKER" \
               '{product: "NSS", component: "Libraries", version: "trunk", type: "defect",
-                summary: $s, description: $d, whiteboard: $w}')" | jq -r '.id')
+                summary: $s, description: $d, whiteboard: $w}' > payload.json
+            id=$(mutate POST bug payload.json | jq -r '.id')
             echo "::notice::Filed $show$id"
           elif ! comments=$(bz GET "bug/$id/comment"); then
             echo "::error::Could not read the comments on bug $id"; exit 1
           elif grep -qF "$FINGERPRINT" <<< "$comments"; then
             echo "Bug $id already reports this set of failures."
+            exit 0
           else
-            # The failing set changed, so the summary is stale.
-            mutate PUT "bug/$id" "$(jq -n --arg s "$summary" --arg d "$body" \
-              '{summary: $s, comment: {body: $d}}')" > /dev/null
+            # The culprit may have changed, so the summary is stale.
+            jq -n --arg s "$summary" --arg d "$body" \
+              '{summary: $s, comment: {body: $d}}' > payload.json
+            mutate PUT "bug/$id" payload.json > /dev/null
             echo "::notice::Updated $show$id"
           fi
+
+          # The comment quotes an excerpt; attach the logs in full.
+          case "$id" in
+            "" | *[!0-9]*) echo "No bug to attach logs to"; exit 0 ;;
+          esac
+          for os in $(jq -r '.[].os' broken.json); do
+            log="verdicts/nss-head-$os/nss-head.log"
+            [ -f "$log" ] || continue
+            gzip -9c < "$log" | base64 -w0 > attach.b64
+            jq -n --argjson ids "[$id]" --rawfile d attach.b64 \
+              --arg f "nss-head-$os-$FINGERPRINT.log.gz" \
+              '{ids: $ids, data: $d, file_name: $f, summary: $f,
+                content_type: "application/gzip", is_patch: false}' > payload.json
+            mutate POST "bug/$id/attachment" payload.json > /dev/null ||
+              { echo "::warning::Could not attach $log"; continue; }
+            echo "::notice::Attached $log"
+          done
 
       - name: Fail if any platform is broken
         if: env.BROKEN == 'true'
