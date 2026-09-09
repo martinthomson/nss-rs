@@ -82,7 +82,11 @@ impl Bindings {
             ("enums", &self.enums),
             ("exclude", &self.exclude),
         ] {
-            if let Some((a, b)) = values.iter().zip(values.iter().skip(1)).find(|(a, b)| a >= b) {
+            if let Some((a, b)) = values
+                .iter()
+                .zip(values.iter().skip(1))
+                .find(|(a, b)| a >= b)
+            {
                 panic!("{name}.{field} is not sorted (or has duplicates): {a:?} >= {b:?}");
             }
         }
