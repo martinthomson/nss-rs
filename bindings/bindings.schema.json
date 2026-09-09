@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/mozilla/nss-rs/main/bindings/bindings.schema",
+  "$id": "https://raw.githubusercontent.com/mozilla/nss-rs/main/bindings/bindings.schema.json",
   "title": "NSS bindings configuration",
   "description": "Configuration for the bindgen invocations in build.rs. Every key corresponds to a header file in this directory (`<key>.h`, or `<key>.hpp` when `cplusplus` is set) and produces a binding file of the same name in $OUT_DIR. Items named in the `types`, `functions`, and `variables` of one header are automatically added to the `exclude` list of every other header, so each item is only generated in one module.",
   "type": "object",
