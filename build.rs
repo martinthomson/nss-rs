@@ -73,10 +73,6 @@ struct Bindings {
 }
 
 impl Bindings {
-    #[expect(
-        clippy::missing_asserts_for_indexing,
-        reason = "windows cannot return len != 2"
-    )]
     fn check_sorted(&self, name: &str) {
         for (field, values) in [
             ("types", &self.types),
@@ -86,7 +82,7 @@ impl Bindings {
             ("enums", &self.enums),
             ("exclude", &self.exclude),
         ] {
-            if let Some([a, b]) = values.windows(2).find(|w| w[0] >= w[1]) {
+            if let Some((a, b)) = values.iter().zip(values.iter().skip(1)).find(|(a, b)| a >= b) {
                 panic!("{name}.{field} is not sorted (or has duplicates): {a:?} >= {b:?}");
             }
         }
