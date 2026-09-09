@@ -1,5 +1,5 @@
 toml-version = "v1.0.0"
 
 [[schemas]]
-path = "bindings/bindings.schema"
+path = "bindings/bindings.schema.json"
 include = ["bindings/bindings.toml"]

@@ -44,10 +44,13 @@ log = { version = "0.4", default-features = false }
 nss-rs = { path = "." }
 
 [workspace.lints.clippy]
+cargo = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
 allow_attributes = "warn"
 allow_attributes_without_reason = "allow"
 assert_is_empty = "allow"  # We prefer using is_empty() in asserts.
-cargo = { level = "warn", priority = -1 }
 cargo_common_metadata = "allow"
 cfg_not_test = "warn"
 clone_on_ref_ptr = "warn"
@@ -84,10 +87,8 @@ mutex_integer = "warn"
 needless_raw_strings = "warn"
 non_ascii_literal = "warn"
 non_zero_suggestions = "warn"
-nursery = { level = "warn", priority = -1 }
 partial_pub_fields = "warn"
 pathbuf_init_then_push = "warn"
-pedantic = { level = "warn", priority = -1 }
 precedence_bits = "warn"
 pub_without_shorthand = "warn"
 rc_buffer = "warn"
