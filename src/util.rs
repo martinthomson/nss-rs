@@ -227,6 +227,7 @@ impl<T: AsRef<[u8]>> SECItemBorrowed<T> {
     }
 
     /// Get a raw const pointer to the item.
+    #[must_use]
     pub const fn as_ptr(&self) -> *const SECItem {
         &raw const self.inner
     }
@@ -322,6 +323,7 @@ impl<'a, T: Sized + 'a> ParamItem<'a, T> {
     }
 
     /// Get a raw const pointer to the item.
+    #[must_use]
     pub const fn as_ptr(&self) -> *const SECItem {
         &raw const self.inner
     }
