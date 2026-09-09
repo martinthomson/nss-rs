@@ -12,7 +12,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    env,
+  env,
     error::Error,
     fs,
     path::{Path, PathBuf},
@@ -44,7 +44,7 @@ fn min_nss_version() -> String {
 #[derive(Deserialize)]
 struct Bindings {
     /// types that are explicitly included
-    #[serde(default)]
+  #[serde(default)]
     types: Vec<String>,
     /// functions that are explicitly included
     #[serde(default)]

@@ -13,4 +13,4 @@ permissions:
 
 jobs:
   format:
-    uses: mozilla/actions/.github/workflows/rustfmt.yml@f8e0d5c4cff5006ee24b6356272d47c9911450d1 # v2.0.6
+    uses: martinthomson/moz-actions/.github/workflows/rustfmt.yml@da1d345c5252406d59d668041aec11aaad093985 #testing
