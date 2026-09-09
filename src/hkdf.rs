@@ -7,13 +7,12 @@
 #![allow(non_camel_case_types, reason = "C enum naming")]
 
 use std::{
-    marker::PhantomData,
     os::raw::{c_char, c_int, c_uint},
     ptr::null_mut,
 };
 
 use crate::{
-    Error, SECItem, SECItemBorrowed, SECItemType,
+    Error, SECItemBorrowed,
     constants::{
         Cipher, TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256,
         TLS_VERSION_1_3, Version,
@@ -25,6 +24,7 @@ use crate::{
         CKM_SHA256, CKM_SHA384, CKM_SHA512, PK11_ImportDataKey, PK11Origin, PK11SymKey, Slot,
         SymKey, random,
     },
+    util::ParamItem,
 };
 
 experimental_api! {
@@ -80,30 +80,6 @@ impl KeyMechanism {
         }
     }
 }
-#[derive(Clone, Copy, Debug)]
-
-pub(crate) struct ParamItem<'a, T> {
-    item: SECItem,
-    marker: PhantomData<&'a T>,
-}
-
-impl<'a, T: Sized + 'a> ParamItem<'a, T> {
-    pub fn new(v: &'a mut T) -> Result<Self, HkdfError> {
-        let item = SECItem {
-            type_: SECItemType::siBuffer,
-            data: std::ptr::from_mut::<T>(v).cast::<u8>(),
-            len: c_uint::try_from(size_of::<T>()).map_err(|_| HkdfError::InvalidLength)?,
-        };
-        Ok(Self {
-            item,
-            marker: PhantomData,
-        })
-    }
-
-    pub const fn ptr(&mut self) -> *mut SECItem {
-        std::ptr::addr_of_mut!(self.item)
-    }
-}
 
 const MAX_KEY_SIZE: usize = 48;
 const fn key_size(version: Version, cipher: Cipher) -> Res<usize> {
@@ -149,7 +125,7 @@ pub fn import_key(version: Version, buf: &[u8]) -> Res<SymKey> {
             CKM_HKDF_DERIVE,
             PK11Origin::PK11_OriginUnwrap,
             CKA_DERIVE,
-            SECItemBorrowed::wrap(buf)?.as_mut(),
+            SECItemBorrowed::wrap(buf)?.as_ptr().cast_mut(), // const_cast!
             null_mut(),
         )
     };
@@ -221,7 +197,6 @@ impl Hkdf {
 
         let slot = Slot::internal().map_err(|_| HkdfError::InternalError)?;
         let ikm_item = SECItemBorrowed::wrap(ikm).map_err(|_| HkdfError::InternalError)?;
-        let ikm_item_ptr = std::ptr::from_ref(ikm_item.as_ref()).cast_mut();
 
         let ptr = unsafe {
             p11::PK11_ImportSymKey(
@@ -229,7 +204,7 @@ impl Hkdf {
                 CKM_HKDF_KEY_GEN,
                 PK11Origin::PK11_OriginUnwrap,
                 CKA_SIGN,
-                ikm_item_ptr,
+                ikm_item.as_ptr().cast_mut(), // const_cast!
                 null_mut(),
             )
         };
@@ -253,7 +228,7 @@ impl Hkdf {
         } else {
             CKF_HKDF_SALT_DATA
         };
-        let mut params = p11::CK_HKDF_PARAMS {
+        let params = p11::CK_HKDF_PARAMS {
             bExtract: CK_BBOOL::from(true),
             bExpand: CK_BBOOL::from(false),
             prfHashMechanism: self.mech(),
@@ -264,12 +239,12 @@ impl Hkdf {
             pInfo: null_mut(),
             ulInfoLen: 0,
         };
-        let mut params_item = ParamItem::new(&mut params)?;
+        let params_item = ParamItem::wrap(&params).map_err(|_| HkdfError::InternalError)?;
         let ptr = unsafe {
             p11::PK11_Derive(
                 **ikm,
                 CKM_HKDF_DERIVE,
-                params_item.ptr(),
+                params_item.as_ptr().cast_mut(), // const_cast!
                 CKM_HKDF_DERIVE,
                 CKA_DERIVE,
                 0,
@@ -303,13 +278,13 @@ impl Hkdf {
     ) -> Result<SymKey, HkdfError> {
         crate::init().map_err(|_| HkdfError::InternalError)?;
 
-        let mut params = self.expand_params(info);
-        let mut params_item = ParamItem::new(&mut params)?;
+        let params = self.expand_params(info);
+        let params_item = ParamItem::wrap(&params).map_err(|_| HkdfError::InternalError)?;
         let ptr = unsafe {
             p11::PK11_Derive(
                 **prk,
                 CKM_HKDF_DERIVE,
-                params_item.ptr(),
+                params_item.as_ptr().cast_mut(), // const_cast!
                 key_mech.mech(),
                 CKA_DERIVE,
                 c_int::try_from(key_mech.len()).map_err(|_| HkdfError::InvalidLength)?,
@@ -322,13 +297,13 @@ impl Hkdf {
     pub fn expand_data(&self, prk: &SymKey, info: &[u8], len: usize) -> Result<Vec<u8>, HkdfError> {
         crate::init().map_err(|_| HkdfError::InternalError)?;
 
-        let mut params = self.expand_params(info);
-        let mut params_item = ParamItem::new(&mut params)?;
+        let params = self.expand_params(info);
+        let params_item = ParamItem::wrap(&params).map_err(|_| HkdfError::InternalError)?;
         let ptr = unsafe {
             p11::PK11_Derive(
                 **prk,
                 CKM_HKDF_DATA,
-                params_item.ptr(),
+                params_item.as_ptr().cast_mut(), // const_cast!
                 CKM_HKDF_DERIVE,
                 CKA_DERIVE,
                 c_int::try_from(len).map_err(|_| HkdfError::InvalidLength)?,
