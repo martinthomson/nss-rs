@@ -1,4 +1,6 @@
 toml-version = "v1.0.0"
+
+[files]
 exclude = ["node_modules/**", "target/**"]
 
 [[schemas]]
