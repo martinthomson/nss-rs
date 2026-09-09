@@ -1,4 +1,5 @@
 toml-version = "v1.0.0"
+exclude = ["node_modules/**", "target/**"]
 
 [[schemas]]
 path = "bindings/bindings.schema.json"
