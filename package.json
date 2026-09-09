@@ -1,4 +1,5 @@
 {
+  "name": "nss-rs",
   "private": true,
   "dependencies": {
     "tombi": "1.5.3"
