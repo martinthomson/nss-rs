@@ -12,19 +12,19 @@ use std::{
 };
 
 use crate::{
-    Error, SECItemBorrowed,
+    Error,
     constants::{
         Cipher, TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256,
         TLS_VERSION_1_3, Version,
     },
     err::Res,
+    item::{ParamItem, SECItemBorrowed},
     p11::{
         self, CK_BBOOL, CK_INVALID_HANDLE, CK_MECHANISM_TYPE, CK_ULONG, CKA_DERIVE, CKA_SIGN,
         CKF_HKDF_SALT_DATA, CKF_HKDF_SALT_NULL, CKM_HKDF_DATA, CKM_HKDF_DERIVE, CKM_HKDF_KEY_GEN,
         CKM_SHA256, CKM_SHA384, CKM_SHA512, PK11_ImportDataKey, PK11Origin, PK11SymKey, Slot,
         SymKey, random,
     },
-    util::ParamItem,
 };
 
 experimental_api! {
@@ -125,7 +125,7 @@ pub fn import_key(version: Version, buf: &[u8]) -> Res<SymKey> {
             CKM_HKDF_DERIVE,
             PK11Origin::PK11_OriginUnwrap,
             CKA_DERIVE,
-            SECItemBorrowed::wrap(buf)?.as_ptr().cast_mut(), // const_cast!
+            SECItemBorrowed::wrap(buf).as_ptr().cast_mut(), // const_cast!
             null_mut(),
         )
     };
@@ -196,7 +196,7 @@ impl Hkdf {
         crate::init().map_err(|_| HkdfError::InternalError)?;
 
         let slot = Slot::internal().map_err(|_| HkdfError::InternalError)?;
-        let ikm_item = SECItemBorrowed::wrap(ikm).map_err(|_| HkdfError::InternalError)?;
+        let ikm_item = SECItemBorrowed::wrap(ikm);
 
         let ptr = unsafe {
             p11::PK11_ImportSymKey(
@@ -239,7 +239,7 @@ impl Hkdf {
             pInfo: null_mut(),
             ulInfoLen: 0,
         };
-        let params_item = ParamItem::wrap(&params).map_err(|_| HkdfError::InternalError)?;
+        let params_item = ParamItem::wrap(&params);
         let ptr = unsafe {
             p11::PK11_Derive(
                 **ikm,
@@ -279,7 +279,7 @@ impl Hkdf {
         crate::init().map_err(|_| HkdfError::InternalError)?;
 
         let params = self.expand_params(info);
-        let params_item = ParamItem::wrap(&params).map_err(|_| HkdfError::InternalError)?;
+        let params_item = ParamItem::wrap(&params);
         let ptr = unsafe {
             p11::PK11_Derive(
                 **prk,
@@ -298,7 +298,7 @@ impl Hkdf {
         crate::init().map_err(|_| HkdfError::InternalError)?;
 
         let params = self.expand_params(info);
-        let params_item = ParamItem::wrap(&params).map_err(|_| HkdfError::InternalError)?;
+        let params_item = ParamItem::wrap(&params);
         let ptr = unsafe {
             p11::PK11_Derive(
                 **prk,
