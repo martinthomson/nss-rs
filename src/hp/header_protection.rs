@@ -76,11 +76,11 @@ impl Key {
                 l.as_ptr().cast(),
                 c_uint::try_from(l.len())?,
                 mech,
-                spec.key_len(),
+                c_uint::try_from(spec.key_len())?,
                 &raw mut secret,
             )
         }?;
-        let key = SymKey::from_ptr(secret).or(Err(Error::Hkdf))?;
+        let key = SymKey::from_ptr(secret)?;
         let kind = make_kind(key)?;
 
         debug_assert_eq!(

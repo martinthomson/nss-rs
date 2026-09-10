@@ -13,24 +13,24 @@ mod exp;
 #[macro_use]
 mod wrap;
 
+pub mod aead;
 pub mod agent;
 mod agentio;
 mod auth;
 pub mod cert;
 pub mod constants;
+pub mod der;
+pub mod ec;
 mod ech;
 pub mod ext;
 #[cfg(all(not(feature = "disable-encryption"), feature = "blapi"))]
 pub(crate) mod freebl;
-pub mod hkdf;
-pub mod hp;
-mod item;
-
-pub mod aead;
-pub mod der;
-pub mod ec;
 pub mod hash;
+pub mod hkdf;
 pub mod hmac;
+pub mod hp;
+pub mod hpke;
+mod item;
 pub mod p11;
 pub mod pbkdf2;
 pub mod pk11_utils;

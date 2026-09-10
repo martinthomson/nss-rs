@@ -215,7 +215,7 @@ pub enum AeadAlgorithms {
 
 impl AeadAlgorithms {
     #[must_use]
-    pub const fn key_len(self) -> c_uint {
+    pub const fn key_len(self) -> usize {
         match self {
             Self::Aes128Gcm => 16,
             Self::Aes256Gcm | Self::ChaCha20Poly1305 => 32,

@@ -13,6 +13,7 @@ use std::{
 
 use crate::{
     Error,
+    aead::AeadAlgorithms,
     constants::{
         Cipher, TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384, TLS_CHACHA20_POLY1305_SHA256,
         TLS_VERSION_1_3, Version,
@@ -20,10 +21,10 @@ use crate::{
     err::Res,
     item::{ParamItem, SECItemBorrowed},
     p11::{
-        self, CK_BBOOL, CK_INVALID_HANDLE, CK_MECHANISM_TYPE, CK_ULONG, CKA_DERIVE, CKA_SIGN,
-        CKF_HKDF_SALT_DATA, CKF_HKDF_SALT_NULL, CKM_HKDF_DATA, CKM_HKDF_DERIVE, CKM_HKDF_KEY_GEN,
-        CKM_SHA256, CKM_SHA384, CKM_SHA512, PK11_ImportDataKey, PK11Origin, PK11SymKey, Slot,
-        SymKey, random,
+        self, CK_ATTRIBUTE_TYPE, CK_BBOOL, CK_INVALID_HANDLE, CK_MECHANISM_TYPE, CK_ULONG,
+        CKA_DECRYPT, CKA_DERIVE, CKA_ENCRYPT, CKA_SIGN, CKA_VALUE, CKF_HKDF_SALT_DATA,
+        CKF_HKDF_SALT_NULL, CKM_HKDF_DATA, CKM_HKDF_DERIVE, CKM_HKDF_KEY_GEN, CKM_SHA256,
+        CKM_SHA384, CKM_SHA512, PK11_ImportDataKey, PK11Origin, PK11SymKey, Slot, SymKey, random,
     },
 };
 
@@ -47,11 +48,13 @@ experimental_api! {
     );
 }
 
-#[derive(Clone, Copy, Debug)]
-
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, thiserror::Error)]
 pub enum HkdfError {
+    #[error("Invalid length for PRK")]
     InvalidPrkLength,
+    #[error("Invalid output length")]
     InvalidLength,
+    #[error("Internal error")]
     InternalError,
 }
 
@@ -64,18 +67,28 @@ pub enum HkdfAlgorithm {
 
 #[derive(Clone, Copy, Debug)]
 pub enum KeyMechanism {
+    Aead(AeadAlgorithms),
     Hkdf,
 }
 
 impl KeyMechanism {
     const fn mech(self) -> CK_MECHANISM_TYPE {
         match self {
+            Self::Aead(aead) => aead.p11_mech(),
             Self::Hkdf => CKM_HKDF_DERIVE,
         }
     }
 
+    fn attr(self) -> CK_ATTRIBUTE_TYPE {
+        CK_ATTRIBUTE_TYPE::from(match self {
+            Self::Aead(_) => CKA_DECRYPT | CKA_ENCRYPT,
+            Self::Hkdf => CKA_DERIVE,
+        })
+    }
+
     const fn len(self) -> usize {
         match self {
+            Self::Aead(aead) => aead.key_len(),
             Self::Hkdf => 0, // Let the underlying module decide.
         }
     }
@@ -286,7 +299,7 @@ impl Hkdf {
                 CKM_HKDF_DERIVE,
                 params_item.as_ptr().cast_mut(), // const_cast!
                 key_mech.mech(),
-                CKA_DERIVE,
+                key_mech.attr(),
                 c_int::try_from(key_mech.len()).map_err(|_| HkdfError::InvalidLength)?,
             )
         };
@@ -305,7 +318,7 @@ impl Hkdf {
                 CKM_HKDF_DATA,
                 params_item.as_ptr().cast_mut(), // const_cast!
                 CKM_HKDF_DERIVE,
-                CKA_DERIVE,
+                CKA_VALUE,
                 c_int::try_from(len).map_err(|_| HkdfError::InvalidLength)?,
             )
         };

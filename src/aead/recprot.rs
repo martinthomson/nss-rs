@@ -25,7 +25,7 @@ use crate::{
 
 fn cipher_mech_and_key_len(cipher: Cipher) -> Res<(CK_MECHANISM_TYPE, c_uint)> {
     let spec = AeadAlgorithms::try_from(cipher)?;
-    Ok((spec.p11_mech(), spec.key_len()))
+    Ok((spec.p11_mech(), c_uint::try_from(spec.key_len())?))
 }
 
 fn make_ctx(
