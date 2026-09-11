@@ -48,14 +48,6 @@ experimental_api! {
 }
 
 #[derive(Clone, Copy, Debug)]
-
-pub enum HkdfError {
-    InvalidPrkLength,
-    InvalidLength,
-    InternalError,
-}
-
-#[derive(Clone, Copy, Debug)]
 pub enum HkdfAlgorithm {
     HKDF_SHA2_256,
     HKDF_SHA2_384,
@@ -88,11 +80,11 @@ pub(crate) struct ParamItem<'a, T> {
 }
 
 impl<'a, T: Sized + 'a> ParamItem<'a, T> {
-    pub fn new(v: &'a mut T) -> Result<Self, HkdfError> {
+    pub fn new(v: &'a mut T) -> Res<Self> {
         let item = SECItem {
             type_: SECItemType::siBuffer,
             data: std::ptr::from_mut::<T>(v).cast::<u8>(),
-            len: c_uint::try_from(size_of::<T>()).map_err(|_| HkdfError::InvalidLength)?,
+            len: c_uint::try_from(size_of::<T>())?,
         };
         Ok(Self {
             item,
@@ -216,11 +208,11 @@ impl Hkdf {
     }
 
     #[expect(clippy::unused_self)]
-    pub fn import_secret(&self, ikm: &[u8]) -> Result<SymKey, HkdfError> {
-        crate::init().map_err(|_| HkdfError::InternalError)?;
+    pub fn import_secret(&self, ikm: &[u8]) -> Res<SymKey> {
+        crate::init()?;
 
-        let slot = Slot::internal().map_err(|_| HkdfError::InternalError)?;
-        let ikm_item = SECItemBorrowed::wrap(ikm).map_err(|_| HkdfError::InternalError)?;
+        let slot = Slot::internal()?;
+        let ikm_item = SECItemBorrowed::wrap(ikm)?;
         let ikm_item_ptr = std::ptr::from_ref(ikm_item.as_ref()).cast_mut();
 
         let ptr = unsafe {
@@ -233,7 +225,7 @@ impl Hkdf {
                 null_mut(),
             )
         };
-        let s = SymKey::from_ptr(ptr).map_err(|_| HkdfError::InternalError)?;
+        let s = SymKey::from_ptr(ptr)?;
         Ok(s)
     }
 
@@ -245,8 +237,8 @@ impl Hkdf {
         }
     }
 
-    pub fn extract(&self, salt: &[u8], ikm: &SymKey) -> Result<SymKey, HkdfError> {
-        crate::init().map_err(|_| HkdfError::InternalError)?;
+    pub fn extract(&self, salt: &[u8], ikm: &SymKey) -> Res<SymKey> {
+        crate::init()?;
 
         let salt_type = if salt.is_empty() {
             CKF_HKDF_SALT_NULL
@@ -259,7 +251,7 @@ impl Hkdf {
             prfHashMechanism: self.mech(),
             ulSaltType: salt_type,
             pSalt: salt.as_ptr().cast_mut(), // const-cast = bad API
-            ulSaltLen: CK_ULONG::try_from(salt.len()).map_err(|_| HkdfError::InvalidLength)?,
+            ulSaltLen: CK_ULONG::try_from(salt.len())?,
             hSaltKey: CK_INVALID_HANDLE,
             pInfo: null_mut(),
             ulInfoLen: 0,
@@ -276,7 +268,7 @@ impl Hkdf {
             )
         };
 
-        let prk = SymKey::from_ptr(ptr).map_err(|_| HkdfError::InternalError)?;
+        let prk = SymKey::from_ptr(ptr)?;
         Ok(prk)
     }
 
@@ -295,13 +287,8 @@ impl Hkdf {
         }
     }
 
-    pub fn expand_key(
-        &self,
-        prk: &SymKey,
-        info: &[u8],
-        key_mech: KeyMechanism,
-    ) -> Result<SymKey, HkdfError> {
-        crate::init().map_err(|_| HkdfError::InternalError)?;
+    pub fn expand_key(&self, prk: &SymKey, info: &[u8], key_mech: KeyMechanism) -> Res<SymKey> {
+        crate::init()?;
 
         let mut params = self.expand_params(info);
         let mut params_item = ParamItem::new(&mut params)?;
@@ -312,15 +299,15 @@ impl Hkdf {
                 params_item.ptr(),
                 key_mech.mech(),
                 CKA_DERIVE,
-                c_int::try_from(key_mech.len()).map_err(|_| HkdfError::InvalidLength)?,
+                c_int::try_from(key_mech.len())?,
             )
         };
-        let okm = SymKey::from_ptr(ptr).map_err(|_| HkdfError::InternalError)?;
+        let okm = SymKey::from_ptr(ptr)?;
         Ok(okm)
     }
 
-    pub fn expand_data(&self, prk: &SymKey, info: &[u8], len: usize) -> Result<Vec<u8>, HkdfError> {
-        crate::init().map_err(|_| HkdfError::InternalError)?;
+    pub fn expand_data(&self, prk: &SymKey, info: &[u8], len: usize) -> Res<Vec<u8>> {
+        crate::init()?;
 
         let mut params = self.expand_params(info);
         let mut params_item = ParamItem::new(&mut params)?;
@@ -331,11 +318,11 @@ impl Hkdf {
                 params_item.ptr(),
                 CKM_HKDF_DERIVE,
                 CKA_DERIVE,
-                c_int::try_from(len).map_err(|_| HkdfError::InvalidLength)?,
+                c_int::try_from(len)?,
             )
         };
-        let k = SymKey::from_ptr(ptr).map_err(|_| HkdfError::InternalError)?;
-        let r = Vec::from(k.key_data().map_err(|_| HkdfError::InternalError)?);
+        let k = SymKey::from_ptr(ptr)?;
+        let r = Vec::from(k.key_data()?);
         Ok(r)
     }
 }
