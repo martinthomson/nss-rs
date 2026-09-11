@@ -80,7 +80,7 @@ pub(crate) struct ParamItem<'a, T> {
 }
 
 impl<'a, T: Sized + 'a> ParamItem<'a, T> {
-    pub fn new(v: &'a mut T) -> Res<Self> {
+    fn new(v: &'a mut T) -> Res<Self> {
         let item = SECItem {
             type_: SECItemType::siBuffer,
             data: std::ptr::from_mut::<T>(v).cast::<u8>(),
