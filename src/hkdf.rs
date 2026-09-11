@@ -225,8 +225,7 @@ impl Hkdf {
                 null_mut(),
             )
         };
-        let s = SymKey::from_ptr(ptr)?;
-        Ok(s)
+        SymKey::from_ptr(ptr)
     }
 
     const fn mech(&self) -> CK_MECHANISM_TYPE {
@@ -257,7 +256,7 @@ impl Hkdf {
             ulInfoLen: 0,
         };
         let mut params_item = ParamItem::new(&mut params)?;
-        let ptr = unsafe {
+        let prk = unsafe {
             p11::PK11_Derive(
                 **ikm,
                 CKM_HKDF_DERIVE,
@@ -268,13 +267,12 @@ impl Hkdf {
             )
         };
 
-        let prk = SymKey::from_ptr(ptr)?;
-        Ok(prk)
+        SymKey::from_ptr(prk)
     }
 
     // NB: `info` must outlive the returned value.
-    fn expand_params(&self, info: &[u8]) -> p11::CK_HKDF_PARAMS {
-        p11::CK_HKDF_PARAMS {
+    fn expand_params(&self, info: &[u8]) -> Res<p11::CK_HKDF_PARAMS> {
+        Ok(p11::CK_HKDF_PARAMS {
             bExtract: CK_BBOOL::from(false),
             bExpand: CK_BBOOL::from(true),
             prfHashMechanism: self.mech(),
@@ -283,16 +281,16 @@ impl Hkdf {
             ulSaltLen: 0,
             hSaltKey: CK_INVALID_HANDLE,
             pInfo: info.as_ptr().cast_mut(), // const-cast = bad API
-            ulInfoLen: CK_ULONG::try_from(info.len()).expect("Integer overflow"),
-        }
+            ulInfoLen: CK_ULONG::try_from(info.len())?,
+        })
     }
 
     pub fn expand_key(&self, prk: &SymKey, info: &[u8], key_mech: KeyMechanism) -> Res<SymKey> {
         crate::init()?;
 
-        let mut params = self.expand_params(info);
+        let mut params = self.expand_params(info)?;
         let mut params_item = ParamItem::new(&mut params)?;
-        let ptr = unsafe {
+        let okm = unsafe {
             p11::PK11_Derive(
                 **prk,
                 CKM_HKDF_DERIVE,
@@ -302,14 +300,13 @@ impl Hkdf {
                 c_int::try_from(key_mech.len())?,
             )
         };
-        let okm = SymKey::from_ptr(ptr)?;
-        Ok(okm)
+        SymKey::from_ptr(okm)
     }
 
     pub fn expand_data(&self, prk: &SymKey, info: &[u8], len: usize) -> Res<Vec<u8>> {
         crate::init()?;
 
-        let mut params = self.expand_params(info);
+        let mut params = self.expand_params(info)?;
         let mut params_item = ParamItem::new(&mut params)?;
         let ptr = unsafe {
             p11::PK11_Derive(
@@ -322,7 +319,6 @@ impl Hkdf {
             )
         };
         let k = SymKey::from_ptr(ptr)?;
-        let r = Vec::from(k.key_data()?);
-        Ok(r)
+        Ok(Vec::from(k.key_data()?))
     }
 }
